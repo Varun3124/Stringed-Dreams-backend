@@ -3,14 +3,10 @@ const router = express.Router();
 const {
   getProducts,
   getProductById,
-  createProduct,
-  updateProduct,
-  deleteProduct,
   createProductReview
 } = require('../controllers/productController');
 const Category = require('../models/Category');
 const { protect } = require('../middleware/auth');
-const { admin } = require('../middleware/admin');
 
 // Get all categories (public)
 router.get('/categories', async (req, res) => {
@@ -22,16 +18,10 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-router.route('/')
-  .get(getProducts)
-  .post(protect, admin, createProduct);
+router.route('/').get(getProducts);
 
-router.route('/:id')
-  .get(getProductById)
-  .put(protect, admin, updateProduct)
-  .delete(protect, admin, deleteProduct);
+router.route('/:id').get(getProductById);
 
-router.route('/:id/reviews')
-  .post(protect, createProductReview);
+router.route('/:id/reviews').post(protect, createProductReview);
 
 module.exports = router;
