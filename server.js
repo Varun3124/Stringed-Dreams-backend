@@ -13,12 +13,19 @@ connectDB();
 const app = express();
 
 // Middleware
+console.log('[DEBUG] CORS origin:', process.env.FRONTEND_URL || 'http://localhost:3000');
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Request logger
+app.use((req, res, next) => {
+  console.log(`[DEBUG] ${req.method} ${req.originalUrl} from origin: ${req.headers.origin}`);
+  next();
+});
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));

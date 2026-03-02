@@ -5,6 +5,7 @@ const Product = require('../models/Product');
 // @access  Public
 const getProducts = async (req, res) => {
   try {
+    console.log('[DEBUG] getProducts called with query:', req.query);
     const { keyword, category, minPrice, maxPrice, sort } = req.query;
     
     let query = {};
@@ -32,10 +33,13 @@ const getProducts = async (req, res) => {
     else if (sort === 'rating') sortOption.rating = -1;
     else sortOption.createdAt = -1;
 
+    console.log('[DEBUG] MongoDB query:', JSON.stringify(query), 'sort:', JSON.stringify(sortOption));
     const products = await Product.find(query).sort(sortOption);
+    console.log('[DEBUG] Products found:', products.length);
 
     res.json(products);
   } catch (error) {
+    console.error('[DEBUG] getProducts error:', error.message);
     res.status(500).json({ message: error.message });
   }
 };

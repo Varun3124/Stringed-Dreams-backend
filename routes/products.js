@@ -11,9 +11,12 @@ const { protect } = require('../middleware/auth');
 // Get all categories (public)
 router.get('/categories', async (req, res) => {
   try {
+    console.log('[DEBUG] GET /categories called');
     const categories = await Category.find({}).sort({ name: 1 });
+    console.log('[DEBUG] Categories found:', categories.length, categories.map(c => c.name));
     res.json(categories);
   } catch (error) {
+    console.error('[DEBUG] GET /categories error:', error.message);
     res.status(500).json({ message: error.message });
   }
 });
