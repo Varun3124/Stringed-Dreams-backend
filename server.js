@@ -7,6 +7,8 @@ const { notFound, errorHandler } = require('./middleware/error');
 // Load environment variables
 dotenv.config();
 
+console.log("Mongo URI:", process.env.MONGO_URI);
+
 // Connect to database
 connectDB();
 
