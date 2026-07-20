@@ -20,8 +20,10 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Increase payload limits to allow base64 image uploads from the admin UI
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '12mb';
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
 
 // Request logger
 app.use((req, res, next) => {

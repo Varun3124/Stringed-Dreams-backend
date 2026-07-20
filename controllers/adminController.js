@@ -20,6 +20,18 @@ const createProduct = async (req, res) => {
   try {
     const { name, description, price, category, color, beadType, image, stock } = req.body;
 
+    if (!String(name || '').trim() || !String(description || '').trim() || !String(category || '').trim()) {
+      return res.status(400).json({ message: 'Name, description, and category are required' });
+    }
+
+    if (price === undefined || price === null || price === '' || Number.isNaN(Number(price))) {
+      return res.status(400).json({ message: 'Please add a valid price' });
+    }
+
+    if (stock === undefined || stock === null || stock === '' || Number.isNaN(Number(stock))) {
+      return res.status(400).json({ message: 'Please add valid stock' });
+    }
+
     const product = await Product.create({
       name,
       description,
@@ -201,33 +213,90 @@ const reorderProducts = async (req, res) => {
   }
 };
 
+const getCategoryFallbackPrice = async (category, priceCache) => {
+  if (priceCache.has(category)) {
+    return priceCache.get(category);
+  }
+
+  const latestProduct = await Product.findOne({ category, stock: { $gt: 0 } })
+    .sort({ createdAt: -1, _id: -1 })
+    .select('price')
+    .lean();
+
+  const fallbackPrice = latestProduct?.price ?? 0;
+  priceCache.set(category, fallbackPrice);
+  return fallbackPrice;
+};
+
 // @desc    Bulk create products
 // @route   POST /api/admin/products/bulk
 // @access  Private/Admin
 const bulkCreateProducts = async (req, res) => {
   try {
-    const { products: productsList } = req.body;
+    const { products: productsList, category: batchCategory } = req.body;
     
     if (!Array.isArray(productsList) || productsList.length === 0) {
       return res.status(400).json({ message: 'No products provided' });
     }
 
-    const results = { created: 0, failed: 0, errors: [] };
+    const results = { created: 0, failed: 0, errors: [], products: [] };
+    const priceCache = new Map();
+
+    // Validate payload sizes: per-image and total
+    const MAX_IMAGE_BYTES = parseInt(process.env.MAX_IMAGE_BYTES || String(2 * 1024 * 1024), 10); // 2MB default per image
+    const MAX_TOTAL_BYTES = parseInt(process.env.MAX_TOTAL_BYTES || String(20 * 1024 * 1024), 10); // 20MB total default
+
+    const extractBase64 = (dataUrl) => {
+      if (!dataUrl || typeof dataUrl !== 'string') return null;
+      const idx = dataUrl.indexOf(',');
+      return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+    };
+
+    let totalBytes = 0;
+    for (let i = 0; i < productsList.length; i++) {
+      const p = productsList[i];
+      const b64 = extractBase64(p.image);
+      if (!b64) {
+        return res.status(400).json({ message: `Image missing or invalid at row ${i + 1}` });
+      }
+      // approximate bytes from base64 length
+      const bytes = Math.round((b64.length * 3) / 4);
+      if (bytes > MAX_IMAGE_BYTES) {
+        return res.status(413).json({ message: `Image at row ${i + 1} exceeds per-image size limit (${Math.round(bytes / 1024)} KB)` });
+      }
+      totalBytes += bytes;
+      if (totalBytes > MAX_TOTAL_BYTES) {
+        return res.status(413).json({ message: `Total upload size exceeds limit` });
+      }
+    }
 
     for (let i = 0; i < productsList.length; i++) {
       try {
         const p = productsList[i];
+        const category = String(p.category || batchCategory || '').trim();
+
+        if (!category) {
+          throw new Error('Category is required for each bulk product');
+        }
+
+        if (!p.image) {
+          throw new Error('Image is required for each bulk product');
+        }
+
+        const fallbackPrice = await getCategoryFallbackPrice(category, priceCache);
+
         await Product.create({
-          name: p.name || `Product ${i + 1}`,
-          description: p.description || '',
-          price: parseFloat(p.price) || 0,
-          category: p.category || 'Uncategorized',
-          color: p.color || '',
-          beadType: p.beadType || '',
-          image: p.image || '',
-          stock: parseInt(p.stock) || 0
+          name: '',
+          description: '',
+          price: fallbackPrice,
+          category,
+          color: '',
+          beadType: '',
+          image: p.image,
+          stock: 1
         });
         results.created++;
+        results.products.push({ index: i + 1, category, price: fallbackPrice });
       } catch (err) {
         results.failed++;
         results.errors.push({ row: i + 1, error: err.message });
