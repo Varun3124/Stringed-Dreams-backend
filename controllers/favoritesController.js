@@ -1,12 +1,15 @@
 const Favorite = require('../models/Favorite');
 const Product = require('../models/Product');
 
+// Populated products never include the inline image (it's served from its own URL)
+const PRODUCT_POPULATE = { path: 'items.product', select: '-image -reviews' };
+
 // @desc    Get user favorites
 // @route   GET /api/favorites
 // @access  Private
 const getFavorites = async (req, res) => {
   try {
-    const favorites = await Favorite.findOne({ user: req.user._id }).populate('items.product');
+    const favorites = await Favorite.findOne({ user: req.user._id }).populate(PRODUCT_POPULATE);
 
     if (favorites) {
       res.json(favorites);
@@ -25,7 +28,7 @@ const addToFavorites = async (req, res) => {
   try {
     const { productId } = req.body;
 
-    const product = await Product.findById(productId);
+    const product = await Product.findById(productId).select('name price category');
 
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
@@ -52,13 +55,12 @@ const addToFavorites = async (req, res) => {
       product: productId,
       name: product.name,
       price: product.price,
-      image: product.image,
       category: product.category
     });
 
     await favorites.save();
     await Product.findByIdAndUpdate(productId, { $inc: { likesCount: 1 } });
-    await favorites.populate('items.product');
+    await favorites.populate(PRODUCT_POPULATE);
 
     res.json(favorites);
   } catch (error) {
@@ -89,7 +91,7 @@ const removeFromFavorites = async (req, res) => {
     if (removedItem) {
       await Product.findByIdAndUpdate(removedItem.product, { $inc: { likesCount: -1 } });
     }
-    await favorites.populate('items.product');
+    await favorites.populate(PRODUCT_POPULATE);
 
     res.json(favorites);
   } catch (error) {
@@ -126,7 +128,7 @@ const toggleFavorite = async (req, res) => {
   try {
     const { productId } = req.body;
 
-    const product = await Product.findById(productId);
+    const product = await Product.findById(productId).select('name price category');
 
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
@@ -149,7 +151,7 @@ const toggleFavorite = async (req, res) => {
       // Remove from favorites
       favorites.items.splice(existingItemIndex, 1);
       await favorites.save();
-      await favorites.populate('items.product');
+      await favorites.populate(PRODUCT_POPULATE);
       // Decrement likesCount
       await Product.findByIdAndUpdate(productId, { $inc: { likesCount: -1 } });
       res.json({ message: 'Removed from favorites', favorites, isFavorite: false });
@@ -159,11 +161,10 @@ const toggleFavorite = async (req, res) => {
         product: productId,
         name: product.name,
         price: product.price,
-        image: product.image,
-        category: product.category
+          category: product.category
       });
       await favorites.save();
-      await favorites.populate('items.product');
+      await favorites.populate(PRODUCT_POPULATE);
       // Increment likesCount
       await Product.findByIdAndUpdate(productId, { $inc: { likesCount: 1 } });
       res.json({ message: 'Added to favorites', favorites, isFavorite: true });

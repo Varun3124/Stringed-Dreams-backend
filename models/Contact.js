@@ -52,4 +52,7 @@ const contactSchema = new mongoose.Schema({
   timestamps: true
 });
 
+contactSchema.index({ user: 1 });
+contactSchema.index({ lastMessageAt: -1 });
+
 module.exports = mongoose.model('Contact', contactSchema);

@@ -34,4 +34,6 @@ const playlistSchema = new mongoose.Schema({
   timestamps: true
 });
 
+playlistSchema.index({ user: 1, updatedAt: -1 });
+
 module.exports = mongoose.model('Playlist', playlistSchema);

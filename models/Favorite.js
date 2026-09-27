@@ -21,9 +21,9 @@ const favoriteSchema = new mongoose.Schema({
       type: Number,
       required: true
     },
+    // Legacy snapshot of the product image; no longer stored (images come from the product)
     image: {
-      type: String,
-      required: true
+      type: String
     },
     category: {
       type: String
@@ -34,7 +34,13 @@ const favoriteSchema = new mongoose.Schema({
     }
   }]
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: {
+    transform(doc, ret) {
+      (ret.items || []).forEach((item) => { delete item.image; });
+      return ret;
+    }
+  }
 });
 
 module.exports = mongoose.model('Favorite', favoriteSchema);

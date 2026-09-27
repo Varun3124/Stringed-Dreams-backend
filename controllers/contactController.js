@@ -3,7 +3,7 @@ const Contact = require('../models/Contact');
 // Population config for messages
 const messagePopulate = [
   { path: 'messages.sender', select: 'name email' },
-  { path: 'messages.product', select: 'name price image' },
+  { path: 'messages.product', select: 'name price imageVersion' },
   { path: 'messages.playlist', select: 'name items' },
   { path: 'user', select: 'name email phone' }
 ];

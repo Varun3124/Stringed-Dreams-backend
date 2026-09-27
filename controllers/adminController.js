@@ -1,12 +1,16 @@
 const Product = require('../models/Product');
 const Category = require('../models/Category');
+const normalizeList = require('../utils/normalizeList');
+
+const LIST_FIELDS = ['color', 'beadType'];
 
 // @desc    Get all products (admin)
 // @route   GET /api/admin/products
 // @access  Private/Admin
 const getAllProducts = async (req, res) => {
   try {
-    const products = await Product.find({}).sort({ createdAt: -1 });
+    // Images are served separately (GET /api/products/:id/image)
+    const products = await Product.find({}).select('-image -reviews').sort({ createdAt: -1 });
     res.json(products);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -16,31 +20,31 @@ const getAllProducts = async (req, res) => {
 // @desc    Create product
 // @route   POST /api/admin/products
 // @access  Private/Admin
+const toNonNegativeNumber = (value) => {
+  if (value === undefined || value === null || value === '') return 0;
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0 ? num : 0;
+};
+
 const createProduct = async (req, res) => {
   try {
-    const { name, description, price, category, color, beadType, image, stock } = req.body;
+    const {
+      name, description, price, category, color, beadType, image, stock,
+      featuredInCarousel, carouselOrder
+    } = req.body;
 
-    if (!String(name || '').trim() || !String(description || '').trim() || !String(category || '').trim()) {
-      return res.status(400).json({ message: 'Name, description, and category are required' });
-    }
-
-    if (price === undefined || price === null || price === '' || Number.isNaN(Number(price))) {
-      return res.status(400).json({ message: 'Please add a valid price' });
-    }
-
-    if (stock === undefined || stock === null || stock === '' || Number.isNaN(Number(stock))) {
-      return res.status(400).json({ message: 'Please add valid stock' });
-    }
-
+    // Every field is optional; fall back to sensible defaults.
     const product = await Product.create({
-      name,
-      description,
-      price,
-      category,
-      color,
-      beadType,
-      image,
-      stock
+      name: String(name || '').trim(),
+      description: String(description || ''),
+      price: toNonNegativeNumber(price),
+      category: String(category || '').trim(),
+      color: normalizeList(color),
+      beadType: normalizeList(beadType),
+      image: image || undefined,
+      stock: toNonNegativeNumber(stock),
+      featuredInCarousel: Boolean(featuredInCarousel),
+      carouselOrder: toNonNegativeNumber(carouselOrder)
     });
 
     res.status(201).json(product);
@@ -54,17 +58,21 @@ const createProduct = async (req, res) => {
 // @access  Private/Admin
 const updateProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
-
-    if (!product) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
+    const updates = { ...req.body };
+    delete updates.imageVersion; // managed by the model
+    LIST_FIELDS.forEach((field) => {
+      if (field in updates) updates[field] = normalizeList(updates[field]);
+    });
 
     const updatedProduct = await Product.findByIdAndUpdate(
       req.params.id,
-      req.body,
-      { new: true, runValidators: true }
+      updates,
+      { new: true, runValidators: true, projection: { image: 0, reviews: 0 } }
     );
+
+    if (!updatedProduct) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
 
     res.json(updatedProduct);
   } catch (error) {
@@ -138,6 +146,11 @@ const updateCategory = async (req, res) => {
       { new: true, runValidators: true }
     );
 
+    // Products reference categories by name, so carry them over on rename.
+    if (updatedCategory.name !== category.name) {
+      await Product.updateMany({ category: category.name }, { category: updatedCategory.name });
+    }
+
     res.json(updatedCategory);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -198,16 +211,19 @@ const updateProductCarousel = async (req, res) => {
 const reorderProducts = async (req, res) => {
   try {
     const { products } = req.body; // Array of { id, displayOrder }
-    
-    // Update all products in a batch
-    const updatePromises = products.map(({ id, displayOrder }) =>
-      Product.findByIdAndUpdate(id, { displayOrder }, { new: true })
+
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ message: 'No products provided' });
+    }
+
+    // Update all products in a single round trip
+    const result = await Product.bulkWrite(
+      products.map(({ id, displayOrder }) => ({
+        updateOne: { filter: { _id: id }, update: { displayOrder } }
+      }))
     );
-    
-    await Promise.all(updatePromises);
-    
-    const updatedProducts = await Product.find({}).sort({ createdAt: -1 });
-    res.json(updatedProducts);
+
+    res.json({ message: 'Products reordered', matched: result.matchedCount });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -285,18 +301,19 @@ const bulkCreateProducts = async (req, res) => {
 
         const fallbackPrice = await getCategoryFallbackPrice(category, priceCache);
 
-        await Product.create({
+        const created = await Product.create({
           name: '',
           description: '',
           price: fallbackPrice,
           category,
-          color: '',
-          beadType: '',
+          color: [],
+          beadType: [],
           image: p.image,
           stock: 1
         });
         results.created++;
-        results.products.push({ index: i + 1, category, price: fallbackPrice });
+        // Serialized without the inline image (see the Product toJSON transform)
+        results.products.push({ index: i + 1, product: created });
       } catch (err) {
         results.failed++;
         results.errors.push({ row: i + 1, error: err.message });
@@ -324,8 +341,8 @@ const duplicateProduct = async (req, res) => {
       description: original.description,
       price: original.price,
       category: original.category,
-      color: original.color,
-      beadType: original.beadType,
+      color: normalizeList(original.color),
+      beadType: normalizeList(original.beadType),
       image: original.image,
       stock: original.stock
     });

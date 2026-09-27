@@ -1,12 +1,15 @@
 const Playlist = require('../models/Playlist');
 
+// Populated products never include the inline image (it's served from its own URL)
+const PRODUCT_POPULATE = { path: 'items.product', select: '-image -reviews' };
+
 // @desc    Get user playlists
 // @route   GET /api/playlists
 // @access  Private
 const getPlaylists = async (req, res) => {
   try {
     const playlists = await Playlist.find({ user: req.user._id })
-      .populate('items.product')
+      .populate(PRODUCT_POPULATE)
       .sort({ updatedAt: -1 });
     res.json(playlists);
   } catch (error) {
@@ -20,13 +23,16 @@ const getPlaylists = async (req, res) => {
 const getPlaylist = async (req, res) => {
   try {
     const playlist = await Playlist.findById(req.params.id)
-      .populate('items.product');
-    
+      .populate(PRODUCT_POPULATE)
+      .populate('user', 'name');
+
     if (!playlist) {
       return res.status(404).json({ message: 'Playlist not found' });
     }
 
-    if (playlist.user.toString() !== req.user._id.toString() && !playlist.isPublic) {
+    // Owners, admins (e.g. following a chat reference), or anyone for public playlists
+    const isOwner = playlist.user?._id?.toString() === req.user._id.toString();
+    if (!isOwner && !playlist.isPublic && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
@@ -48,7 +54,7 @@ const createPlaylist = async (req, res) => {
       description: description || ''
     });
     
-    const populated = await playlist.populate('items.product');
+    const populated = await playlist.populate(PRODUCT_POPULATE);
     res.status(201).json(populated);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -75,7 +81,7 @@ const updatePlaylist = async (req, res) => {
     if (isPublic !== undefined) playlist.isPublic = isPublic;
 
     await playlist.save();
-    const populated = await playlist.populate('items.product');
+    const populated = await playlist.populate(PRODUCT_POPULATE);
     res.json(populated);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -125,7 +131,7 @@ const addItem = async (req, res) => {
 
     playlist.items.push({ product: productId });
     await playlist.save();
-    const populated = await playlist.populate('items.product');
+    const populated = await playlist.populate(PRODUCT_POPULATE);
     res.json(populated);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -150,7 +156,7 @@ const removeItem = async (req, res) => {
       item => item.product.toString() !== req.params.productId
     );
     await playlist.save();
-    const populated = await playlist.populate('items.product');
+    const populated = await playlist.populate(PRODUCT_POPULATE);
     res.json(populated);
   } catch (error) {
     res.status(400).json({ message: error.message });
