@@ -3,9 +3,10 @@
 Express + MongoDB API for the Stringed Dreams handcrafted-jewelry showcase: products and categories, favorites, personal collections (playlists), customer chat, and an admin API. The React storefront lives in the [Stringed-Dreams-frontend](https://github.com/Varun3124/Stringed-Dreams-frontend) repo.
 
 ## Tech stack
-- Node.js (>= 18), Express 4
+- Node.js (>= 20), Express 4
 - MongoDB + Mongoose 8
 - JWT auth + bcryptjs
+- Nodemailer (inquiry emails)
 - cors, compression, dotenv
 
 ## Setup
@@ -27,6 +28,15 @@ npm run dev            # nodemon; `npm start` for production
 | `FRONTEND_URL` | recommended | Allowed CORS origin (defaults to `http://localhost:3000`) |
 | `JSON_BODY_LIMIT` | no | Max JSON body size for base64 image uploads (default `12mb`) |
 | `MAX_IMAGE_BYTES` / `MAX_TOTAL_BYTES` | no | Bulk-import size limits per image / per batch |
+| `SMTP_USER` / `SMTP_PASS` | for emails | SMTP login. For Gmail, use a Google App Password. Inquiry emails are off until both are set. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | no | Default to `smtp.gmail.com`, port `465`, secure (TLS) |
+| `EMAIL_FROM` | no | Sender, e.g. `Stringed Dreams <you@gmail.com>` (defaults to `SMTP_USER`) |
+| `ADMIN_EMAILS` | no | Extra comma-separated recipients; every admin account is always included |
+
+## Inquiry emails
+When a customer starts a conversation or sends a message, every admin account (plus `ADMIN_EMAILS`) gets an email. It contains the message, the customer's email and phone, any referenced product or collection with a link, and a link to the dashboard. Replying to the email writes to the customer directly.
+
+To avoid flooding inboxes, admins get **one email per unread stretch**. After the first new message, no more emails go out until an admin opens, replies to or resolves the conversation; the next customer message after that sends a new one. Emails are sent in the background, so a slow or failing mail server never delays the customer.
 
 ## Startup tasks
 On every start, after connecting, the server runs these idempotent maintenance steps (see `config/db.js`). A second run changes nothing.

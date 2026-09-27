@@ -1,4 +1,14 @@
 const Contact = require('../models/Contact');
+const { notifyAdminsOfInquiry } = require('../utils/inquiryNotifier');
+
+// Email the admins in the background; never delays or fails the customer's request.
+// If sending fails, clear notifiedAt so the next message tries again.
+const emailAdmins = (conversationId, details) => {
+  notifyAdminsOfInquiry(details).catch((error) => {
+    console.error('Failed to send inquiry email:', error.message);
+    Contact.updateOne({ _id: conversationId }, { $unset: { notifiedAt: 1 } }).catch(() => {});
+  });
+};
 
 // Population config for messages
 const messagePopulate = [
@@ -56,11 +66,20 @@ const createConversation = async (req, res) => {
       subject,
       messages: [firstMessage],
       lastMessageAt: new Date(),
-      status: 'new'
+      status: 'new',
+      notifiedAt: new Date()
     });
 
     const populated = await Contact.findById(conversation._id).populate(messagePopulate);
     res.status(201).json(populated);
+
+    emailAdmins(conversation._id, {
+      customer: req.user,
+      text,
+      productId: firstMessage.product,
+      playlistId: firstMessage.playlist,
+      isNewConversation: true
+    });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -152,18 +171,34 @@ const addMessage = async (req, res) => {
     });
     
     conversation.lastMessageAt = new Date();
-    
-    // Update status based on who sent
+
+    // Admins get one email per unread stretch: the first customer message after they last
+    // read, replied or resolved the conversation (or the very first message).
+    const previousStatus = conversation.status;
+    const shouldEmailAdmins = senderRole === 'user' && (previousStatus !== 'new' || !conversation.notifiedAt);
+
+    // Update status based on who sent; a customer message reopens a resolved conversation
     if (senderRole === 'admin') {
       conversation.status = 'replied';
-    } else if (conversation.status === 'replied' || conversation.status === 'read') {
+    } else {
       conversation.status = 'new';
     }
-    
+    if (shouldEmailAdmins) conversation.notifiedAt = new Date();
+
     await conversation.save();
-    
+
     const populated = await Contact.findById(conversation._id).populate(messagePopulate);
     res.status(201).json(populated);
+
+    if (shouldEmailAdmins) {
+      emailAdmins(conversation._id, {
+        customer: req.user,
+        text,
+        productId: product,
+        playlistId: playlist,
+        isNewConversation: conversation.messages.filter(m => m.senderRole === 'user').length === 1
+      });
+    }
   } catch (error) {
     res.status(400).json({ message: error.message });
   }

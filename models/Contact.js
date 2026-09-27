@@ -47,6 +47,10 @@ const contactSchema = new mongoose.Schema({
     type: String,
     enum: ['new', 'read', 'replied', 'resolved'],
     default: 'new'
+  },
+  // When admins were last emailed about this conversation; reset once they read or reply
+  notifiedAt: {
+    type: Date
   }
 }, {
   timestamps: true
