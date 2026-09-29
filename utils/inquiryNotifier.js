@@ -7,6 +7,19 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 }[c]));
 
+const formatRupees = (amount) => `₹${Number(amount || 0).toLocaleString('en-IN')}`;
+
+// Plain text ("₹400, was ₹500") and HTML (struck-through original) forms of a product's price
+const describePrice = ({ price, discountPrice }) => {
+  const discounted = discountPrice !== undefined && discountPrice !== null && Number(discountPrice) < Number(price);
+  if (!discounted) return { text: formatRupees(price), html: escapeHtml(formatRupees(price)) };
+  return {
+    text: `${formatRupees(discountPrice)}, was ${formatRupees(price)}`,
+    html: `<span style="text-decoration:line-through;color:#a0aec0">${escapeHtml(formatRupees(price))}</span> `
+      + `<strong style="color:#7b2cbf">${escapeHtml(formatRupees(discountPrice))}</strong>`
+  };
+};
+
 const siteUrl = () => (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
 // Everyone with the admin role, plus any extra addresses in ADMIN_EMAILS (comma-separated)
@@ -32,14 +45,15 @@ const notifyAdminsOfInquiry = async ({ customer, text, productId, playlistId, is
   }
 
   const [product, playlist] = await Promise.all([
-    productId ? Product.findById(productId).select('name price').lean() : null,
+    productId ? Product.findById(productId).select('name price discountPrice').lean() : null,
     playlistId ? Playlist.findById(playlistId).select('name items').lean() : null
   ]);
 
   const base = siteUrl();
   const name = customer?.name || 'A customer';
+  const productPrice = product ? describePrice(product) : null;
   const reference = product
-    ? { label: 'Product', name: product.name || 'Untitled product', detail: `₹${Number(product.price || 0).toLocaleString('en-IN')}`, url: `${base}/product/${product._id}` }
+    ? { label: 'Product', name: product.name || 'Untitled product', detail: productPrice.text, detailHtml: productPrice.html, url: `${base}/product/${product._id}` }
     : playlist
       ? { label: 'Collection', name: playlist.name, detail: `${playlist.items?.length || 0} items`, url: `${base}/playlists/${playlist._id}` }
       : null;
@@ -69,7 +83,7 @@ const notifyAdminsOfInquiry = async ({ customer, text, productId, playlistId, is
   <p style="margin:16px 0 0;font-size:14px">
     <strong>${escapeHtml(reference.label)}:</strong>
     <a href="${escapeHtml(reference.url)}" style="color:#7b2cbf">${escapeHtml(reference.name)}</a>
-    <span style="color:#718096">(${escapeHtml(reference.detail)})</span>
+    <span style="color:#718096">(${reference.detailHtml || escapeHtml(reference.detail)})</span>
   </p>` : ''}
   <p style="margin:24px 0 0">
     <a href="${escapeHtml(dashboardUrl)}" style="display:inline-block;background:#9d4edd;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">Reply in the dashboard</a>

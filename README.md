@@ -67,7 +67,7 @@ Base path: `/api`
 - `GET /auth/profile`, `PUT /auth/profile` (auth)
 
 **Products (public)**
-- `GET /products`. Query parameters: `keyword`, `category`, `minPrice`, `maxPrice`, `sort` (`price-asc`, `price-desc` or `rating`).
+- `GET /products`. Query parameters: `keyword`, `category`, `minPrice`, `maxPrice`, `sort` (`price-asc`, `price-desc` or `rating`). The price filters and sorts use `discountPrice`.
 - `GET /products/categories`
 - `GET /products/:id`
 - `GET /products/:id/image`
@@ -88,11 +88,11 @@ Base path: `/api`
 - Admin: `GET /contact`, `PUT /contact/:id`, `DELETE /contact/:id`
 
 **Admin (auth + admin role)**
-- `GET /admin/products` and `POST /admin/products`. Every field is optional: price and stock default to 0, and category to none.
+- `GET /admin/products` and `POST /admin/products`. Every field is optional: price and stock default to 0, and category to none. `discountPrice` defaults to the price; a value above the price (or a negative or non-numeric one) is rejected with a 400.
 - `PUT /admin/products/reorder` takes `{ products: [{ id, displayOrder }] }` and runs as a single bulk write.
 - `POST /admin/products/bulk` creates one product per image and returns the created products.
 - `POST /admin/products/:id/duplicate`
-- `PUT /admin/products/:id`, `DELETE /admin/products/:id`, `PUT /admin/products/:id/carousel`
+- `PUT /admin/products/:id`, `DELETE /admin/products/:id`, `PUT /admin/products/:id/carousel`. When only `price` is updated, `discountPrice` follows it unless the product has a discount that is still below the new price; sending `discountPrice: ""` removes the discount.
 - `GET /admin/categories`, `POST /admin/categories`
 - `PUT /admin/categories/:id`. Renaming a category moves its products to the new name.
 - `DELETE /admin/categories/:id` is refused while products still use the category.
@@ -100,7 +100,7 @@ Base path: `/api`
 ## Data models
 - `User`: name, email, password (hashed), role (`user` or `admin`), phone
 - `Product`:
-  - name, description, price, category, stock
+  - name, description, price, discountPrice, category, stock
   - `color: [String]` and `beadType: [String]`
   - image and `imageVersion`
   - rating, reviews and likesCount

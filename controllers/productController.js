@@ -21,16 +21,16 @@ const getProducts = async (req, res) => {
       query.category = category;
     }
 
-    // Filter by price range
+    // Filter by price range (the price customers pay, i.e. after any discount)
     if (minPrice || maxPrice) {
-      query.price = {};
-      if (minPrice) query.price.$gte = Number(minPrice);
-      if (maxPrice) query.price.$lte = Number(maxPrice);
+      query.discountPrice = {};
+      if (minPrice) query.discountPrice.$gte = Number(minPrice);
+      if (maxPrice) query.discountPrice.$lte = Number(maxPrice);
     }
 
     let sortOption = {};
-    if (sort === 'price-asc') sortOption.price = 1;
-    else if (sort === 'price-desc') sortOption.price = -1;
+    if (sort === 'price-asc') sortOption.discountPrice = 1;
+    else if (sort === 'price-desc') sortOption.discountPrice = -1;
     else if (sort === 'rating') sortOption.rating = -1;
     else sortOption.createdAt = -1;
 

@@ -23,6 +23,12 @@ const productSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  // What customers pay. Equal to `price` unless a discount is set (filled in by the
+  // pre-validate hook below when left out).
+  discountPrice: {
+    type: Number,
+    min: 0
+  },
   category: {
     type: String,
     default: ''
@@ -119,6 +125,12 @@ const productSchema = new mongoose.Schema({
 
 productSchema.index({ category: 1, displayOrder: 1 });
 productSchema.index({ featuredInCarousel: 1, carouselOrder: 1 });
+
+productSchema.pre('validate', function () {
+  if (this.discountPrice === undefined || this.discountPrice === null) {
+    this.discountPrice = this.price;
+  }
+});
 
 productSchema.pre('save', function () {
   if (this.isNew || this.isModified('image')) {

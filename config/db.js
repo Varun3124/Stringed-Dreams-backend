@@ -81,6 +81,32 @@ const migrateImageVersions = async () => {
   }
 };
 
+// Products created before discount prices existed get a discount price equal to their price
+const migrateDiscountPrices = async () => {
+  try {
+    const Product = require('../models/Product');
+    // `null` matches both a missing field and an explicit null
+    const legacy = await Product.collection
+      .find({ discountPrice: null }, { projection: { price: 1 } })
+      .toArray();
+
+    const bulkOps = legacy.map((doc) => ({
+      updateOne: {
+        filter: { _id: doc._id },
+        update: { $set: { discountPrice: Number(doc.price) || 0 } }
+      }
+    }));
+
+    if (bulkOps.length > 0) {
+      await Product.collection.bulkWrite(bulkOps);
+    }
+
+    console.log(`Set discountPrice for ${bulkOps.length} products`);
+  } catch (error) {
+    console.error('Error setting discount prices:', error.message);
+  }
+};
+
 // Favorites used to keep a copy of each product's (base64) image; drop those copies
 const stripFavoriteImageCopies = async () => {
   try {
@@ -101,6 +127,7 @@ const connectDB = async () => {
     console.log(`MongoDB Connected: ${conn.connection.host}`);
     await migrateListFields(['color', 'beadType']);
     await migrateImageVersions();
+    await migrateDiscountPrices();
     await stripFavoriteImageCopies();
     await syncLikesCount();
   } catch (error) {

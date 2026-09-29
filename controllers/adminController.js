@@ -26,18 +26,36 @@ const toNonNegativeNumber = (value) => {
   return Number.isFinite(num) && num >= 0 ? num : 0;
 };
 
+// Blank means "no discount" (the discount price equals the price). Anything else must be a
+// valid amount no higher than the price; unlike other fields it is rejected rather than
+// silently defaulted, because a bad value would otherwise turn into a free product.
+const parseDiscountPrice = (value, price) => {
+  if (value === undefined || value === null || value === '') return price;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) {
+    throw new Error('Discount price must be a non-negative number');
+  }
+  if (num > price) {
+    throw new Error("Discount price can't be higher than the price");
+  }
+  return num;
+};
+
 const createProduct = async (req, res) => {
   try {
     const {
-      name, description, price, category, color, beadType, image, stock,
+      name, description, price, discountPrice, category, color, beadType, image, stock,
       featuredInCarousel, carouselOrder
     } = req.body;
+
+    const priceValue = toNonNegativeNumber(price);
 
     // Every field is optional; fall back to sensible defaults.
     const product = await Product.create({
       name: String(name || '').trim(),
       description: String(description || ''),
-      price: toNonNegativeNumber(price),
+      price: priceValue,
+      discountPrice: parseDiscountPrice(discountPrice, priceValue),
       category: String(category || '').trim(),
       color: normalizeList(color),
       beadType: normalizeList(beadType),
@@ -53,6 +71,27 @@ const createProduct = async (req, res) => {
   }
 };
 
+// Keeps `discountPrice` consistent when a price or discount is edited. A product with no
+// discount follows its price; an existing discount stays unless the new price drops below it.
+const applyDiscountPriceUpdate = async (id, updates) => {
+  if (!('price' in updates) && !('discountPrice' in updates)) return;
+
+  const current = await Product.findById(id).select('price discountPrice').lean();
+  if (!current) return; // the update below reports the 404
+
+  const oldPrice = current.price ?? 0;
+  const oldDiscount = current.discountPrice ?? oldPrice;
+  const price = 'price' in updates ? Number(updates.price) : oldPrice;
+  if (!Number.isFinite(price)) return; // schema validation rejects the price
+
+  if ('discountPrice' in updates) {
+    updates.discountPrice = parseDiscountPrice(updates.discountPrice, price);
+  } else {
+    const hadDiscount = oldDiscount < oldPrice;
+    updates.discountPrice = hadDiscount && oldDiscount <= price ? oldDiscount : price;
+  }
+};
+
 // @desc    Update product
 // @route   PUT /api/admin/products/:id
 // @access  Private/Admin
@@ -63,6 +102,7 @@ const updateProduct = async (req, res) => {
     LIST_FIELDS.forEach((field) => {
       if (field in updates) updates[field] = normalizeList(updates[field]);
     });
+    await applyDiscountPriceUpdate(req.params.id, updates);
 
     const updatedProduct = await Product.findByIdAndUpdate(
       req.params.id,
@@ -340,6 +380,7 @@ const duplicateProduct = async (req, res) => {
       name: `${original.name} (Copy)`,
       description: original.description,
       price: original.price,
+      discountPrice: original.discountPrice,
       category: original.category,
       color: normalizeList(original.color),
       beadType: normalizeList(original.beadType),
