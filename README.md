@@ -91,9 +91,13 @@ Base path: `/api`
 - `GET /admin/products` and `POST /admin/products`. Every field is optional: price and stock default to 0, and category to none. `discountPrice` defaults to the price; a value above the price (or a negative or non-numeric one) is rejected with a 400.
 - `PUT /admin/products/reorder` takes `{ products: [{ id, displayOrder }] }` and runs as a single bulk write.
 - `POST /admin/products/bulk` creates one product per image and returns the created products.
+- `PUT /admin/products/bulk-update` takes `{ updates: [{ id, changes }] }` from the admin multi-select. Only `color`, `beadType`, `price`, `discountPrice`, `stock` and `featuredInCarousel` are applied, with the same discount rules as a single update. Every entry is validated first; any invalid one returns a 400 and nothing is written.
 - `POST /admin/products/:id/duplicate`
-- `PUT /admin/products/:id`, `DELETE /admin/products/:id`, `PUT /admin/products/:id/carousel`. When only `price` is updated, `discountPrice` follows it unless the product has a discount that is still below the new price; sending `discountPrice: ""` removes the discount.
-- `GET /admin/categories`, `POST /admin/categories`
+- `DELETE /admin/products/:id` returns the deleted document (image and reviews included) as `product`, and `POST /admin/products/restore` with `{ product }` puts it back with the same id. The admin page uses the pair to undo deletes; 409 if the product already exists.
+- `PUT /admin/products/:id`, `PUT /admin/products/:id/carousel`. When only `price` is updated, `discountPrice` follows it unless the product has a discount that is still below the new price; sending `discountPrice: ""` removes the discount.
+- `GET /admin/categories`, `POST /admin/categories`. Categories are returned in `displayOrder` (ties by creation order, never by name); new ones go after the last one, and editing a name or description keeps the position. At startup, categories that share a position are numbered once, keeping any dragged order and otherwise creation order.
+- `POST /admin/categories/restore` takes `{ _id, name, description, displayOrder }` and recreates a deleted category with the same id (409 if the id or name is taken).
+- `PUT /admin/categories/reorder` takes `{ categories: [{ id, displayOrder }] }` and runs as a single bulk write. The public `GET /products/categories` uses the same order.
 - `PUT /admin/categories/:id`. Renaming a category moves its products to the new name.
 - `DELETE /admin/categories/:id` is refused while products still use the category.
 
@@ -105,7 +109,7 @@ Base path: `/api`
   - image and `imageVersion`
   - rating, reviews and likesCount
   - carousel and display-order fields
-- `Category`: name (unique), description
+- `Category`: name (unique), description, displayOrder
 - `Favorite`: one document per user listing product references
 - `Playlist`: a user-owned collection of product references
 - `Contact`: a chat thread whose messages can reference a product or a collection

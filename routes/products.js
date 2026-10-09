@@ -18,7 +18,8 @@ const revalidate = (req, res, next) => {
 // Get all categories (public)
 router.get('/categories', revalidate, async (req, res) => {
   try {
-    const categories = await Category.find({}).sort({ name: 1 });
+    // Dashboard order (set by dragging in the admin page), then creation order
+    const categories = await Category.find({}).sort({ displayOrder: 1, createdAt: 1, _id: 1 });
     res.json(categories);
   } catch (error) {
     res.status(500).json({ message: error.message });

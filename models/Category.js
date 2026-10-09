@@ -10,6 +10,11 @@ const categorySchema = new mongoose.Schema({
   description: {
     type: String,
     default: ''
+  },
+  // Position on the dashboard (set by dragging categories in the admin page)
+  displayOrder: {
+    type: Number,
+    default: 0
   }
 }, {
   timestamps: true

@@ -4,6 +4,9 @@ const normalizeList = require('../utils/normalizeList');
 
 const LIST_FIELDS = ['color', 'beadType'];
 
+// Dashboard order; ties (which the startup migration removes) fall back to creation order
+const CATEGORY_ORDER = { displayOrder: 1, createdAt: 1, _id: 1 };
+
 // @desc    Get all products (admin)
 // @route   GET /api/admin/products
 // @access  Private/Admin
@@ -71,14 +74,12 @@ const createProduct = async (req, res) => {
   }
 };
 
-// Keeps `discountPrice` consistent when a price or discount is edited. A product with no
-// discount follows its price; an existing discount stays unless the new price drops below it.
-const applyDiscountPriceUpdate = async (id, updates) => {
-  if (!('price' in updates) && !('discountPrice' in updates)) return;
+const touchesPricing = (updates) => 'price' in updates || 'discountPrice' in updates;
 
-  const current = await Product.findById(id).select('price discountPrice').lean();
-  if (!current) return; // the update below reports the 404
-
+// Keeps `discountPrice` consistent when a price or discount is edited, given the product's
+// current `price`/`discountPrice`. A product with no discount follows its price; an existing
+// discount stays unless the new price drops below it. Sets `updates.discountPrice`.
+const resolveDiscountPrice = (current, updates) => {
   const oldPrice = current.price ?? 0;
   const oldDiscount = current.discountPrice ?? oldPrice;
   const price = 'price' in updates ? Number(updates.price) : oldPrice;
@@ -90,6 +91,13 @@ const applyDiscountPriceUpdate = async (id, updates) => {
     const hadDiscount = oldDiscount < oldPrice;
     updates.discountPrice = hadDiscount && oldDiscount <= price ? oldDiscount : price;
   }
+};
+
+const applyDiscountPriceUpdate = async (id, updates) => {
+  if (!touchesPricing(updates)) return;
+  const current = await Product.findById(id).select('price discountPrice').lean();
+  if (!current) return; // the update below reports the 404
+  resolveDiscountPrice(current, updates);
 };
 
 // @desc    Update product
@@ -120,21 +128,101 @@ const updateProduct = async (req, res) => {
   }
 };
 
+const BULK_UPDATE_FIELDS = ['color', 'beadType', 'price', 'discountPrice', 'stock', 'featuredInCarousel'];
+
+const toValidAmount = (value, label) => {
+  const num = Number(value);
+  if (value === '' || value === null || !Number.isFinite(num) || num < 0) {
+    throw new Error(`${label} must be a non-negative number`);
+  }
+  return num;
+};
+
+// @desc    Apply per-product changes to many products at once (admin multi-select)
+// @route   PUT /api/admin/products/bulk-update
+// @access  Private/Admin
+const bulkUpdateProducts = async (req, res) => {
+  try {
+    const { updates } = req.body; // Array of { id, changes }
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ message: 'No products provided' });
+    }
+
+    const current = await Product.find({ _id: { $in: updates.map((u) => u?.id) } })
+      .select('price discountPrice')
+      .lean();
+    const currentById = new Map(current.map((p) => [String(p._id), p]));
+
+    // Validate everything before writing, so a bad entry doesn't leave a half-applied edit
+    const operations = [];
+    updates.forEach(({ id, changes } = {}) => {
+      const product = currentById.get(String(id));
+      if (!product) throw new Error(`Product not found: ${id}`);
+
+      const set = {};
+      BULK_UPDATE_FIELDS.forEach((field) => {
+        if (changes && field in changes) set[field] = changes[field];
+      });
+      LIST_FIELDS.forEach((field) => {
+        if (field in set) set[field] = normalizeList(set[field]);
+      });
+      if ('price' in set) set.price = toValidAmount(set.price, 'Price');
+      if ('stock' in set) set.stock = toValidAmount(set.stock, 'Stock');
+      if ('featuredInCarousel' in set) set.featuredInCarousel = Boolean(set.featuredInCarousel);
+      if (touchesPricing(set)) resolveDiscountPrice(product, set);
+
+      if (Object.keys(set).length > 0) {
+        operations.push({ updateOne: { filter: { _id: product._id }, update: { $set: set } } });
+      }
+    });
+
+    const result = operations.length > 0 ? await Product.bulkWrite(operations) : { matchedCount: 0 };
+    res.json({ message: 'Products updated', matched: result.matchedCount });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 // @desc    Delete product
 // @route   DELETE /api/admin/products/:id
 // @access  Private/Admin
 const deleteProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    // Raw document (with its image and reviews), so the admin page can undo the delete
+    const product = await Product.findById(req.params.id).lean();
 
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
     await Product.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Product deleted successfully' });
+    res.json({ message: 'Product deleted successfully', product });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Put back a deleted product with its original id (admin undo)
+// @route   POST /api/admin/products/restore
+// @access  Private/Admin
+const restoreProduct = async (req, res) => {
+  try {
+    const { product } = req.body; // the document returned by DELETE /admin/products/:id
+    if (!product?._id) {
+      return res.status(400).json({ message: 'No product to restore' });
+    }
+    if (await Product.exists({ _id: product._id })) {
+      return res.status(409).json({ message: 'Product already exists' });
+    }
+
+    // Same id, so favorites and collections that still point at it work again
+    const restored = await Product.create(product);
+    const json = restored.toJSON();
+    delete json.reviews;
+    res.status(201).json(json);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
   }
 };
 
@@ -143,10 +231,30 @@ const deleteProduct = async (req, res) => {
 // @access  Private/Admin
 const getAllCategories = async (req, res) => {
   try {
-    const categories = await Category.find({}).sort({ name: 1 });
+    const categories = await Category.find({}).sort(CATEGORY_ORDER);
     res.json(categories);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Put back a deleted category with its original id (admin undo)
+// @route   POST /api/admin/categories/restore
+// @access  Private/Admin
+const restoreCategory = async (req, res) => {
+  try {
+    const { _id, name, description, displayOrder } = req.body;
+    if (!_id || !name) {
+      return res.status(400).json({ message: 'No category to restore' });
+    }
+    if (await Category.exists({ $or: [{ _id }, { name }] })) {
+      return res.status(409).json({ message: 'Category already exists' });
+    }
+
+    const category = await Category.create({ _id, name, description, displayOrder });
+    res.status(201).json(category);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
   }
 };
 
@@ -162,7 +270,9 @@ const createCategory = async (req, res) => {
       return res.status(400).json({ message: 'Category already exists' });
     }
 
-    const category = await Category.create({ name, description });
+    // New categories go after the existing ones
+    const last = await Category.findOne({}).sort({ displayOrder: -1 }).select('displayOrder').lean();
+    const category = await Category.create({ name, description, displayOrder: (last?.displayOrder ?? -1) + 1 });
     res.status(201).json(category);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -192,6 +302,29 @@ const updateCategory = async (req, res) => {
     }
 
     res.json(updatedCategory);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Reorder categories (their order on the dashboard)
+// @route   PUT /api/admin/categories/reorder
+// @access  Private/Admin
+const reorderCategories = async (req, res) => {
+  try {
+    const { categories } = req.body; // Array of { id, displayOrder }
+
+    if (!Array.isArray(categories) || categories.length === 0) {
+      return res.status(400).json({ message: 'No categories provided' });
+    }
+
+    const result = await Category.bulkWrite(
+      categories.map(({ id, displayOrder }) => ({
+        updateOne: { filter: { _id: id }, update: { displayOrder: Number(displayOrder) || 0 } }
+      }))
+    );
+
+    res.json({ message: 'Categories reordered', matched: result.matchedCount });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -398,10 +531,14 @@ module.exports = {
   getAllProducts,
   createProduct,
   updateProduct,
+  bulkUpdateProducts,
   deleteProduct,
+  restoreProduct,
   getAllCategories,
   createCategory,
+  restoreCategory,
   updateCategory,
+  reorderCategories,
   deleteCategory,
   updateProductCarousel,
   reorderProducts,

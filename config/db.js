@@ -107,6 +107,28 @@ const migrateDiscountPrices = async () => {
   }
 };
 
+// Categories used to share displayOrder 0 (and were listed by name). Give each its own
+// position so renames never move them: an order set by dragging is kept, ties go by
+// creation order. Does nothing once every category has its own position.
+const migrateCategoryOrder = async () => {
+  try {
+    const Category = require('../models/Category');
+    const categories = await Category.find({})
+      .sort({ displayOrder: 1, createdAt: 1, _id: 1 })
+      .select('displayOrder')
+      .lean();
+    const positions = new Set(categories.map((c) => c.displayOrder));
+    if (positions.size === categories.length && !positions.has(undefined)) return;
+
+    await Category.bulkWrite(categories.map((c, index) => ({
+      updateOne: { filter: { _id: c._id }, update: { $set: { displayOrder: index } } }
+    })));
+    console.log(`Numbered displayOrder for ${categories.length} categories`);
+  } catch (error) {
+    console.error('Error numbering categories:', error.message);
+  }
+};
+
 // Favorites used to keep a copy of each product's (base64) image; drop those copies
 const stripFavoriteImageCopies = async () => {
   try {
@@ -128,6 +150,7 @@ const connectDB = async () => {
     await migrateListFields(['color', 'beadType']);
     await migrateImageVersions();
     await migrateDiscountPrices();
+    await migrateCategoryOrder();
     await stripFavoriteImageCopies();
     await syncLikesCount();
   } catch (error) {

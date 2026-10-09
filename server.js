@@ -17,7 +17,8 @@ const app = express();
 app.use(compression());
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true
+  credentials: true,
+  exposedHeaders: ['X-Image-Placeholder']
 }));
 // Increase payload limits to allow base64 image uploads from the admin UI
 const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '12mb';

@@ -111,8 +111,14 @@ const IMAGE_SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 };
 
+// X-Image-Placeholder lets the admin page tell "no image" apart from an uploaded one (for undo)
 const sendPlaceholder = (res) => {
-  res.set({ ...IMAGE_SECURITY_HEADERS, 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' });
+  res.set({
+    ...IMAGE_SECURITY_HEADERS,
+    'Content-Type': 'image/svg+xml',
+    'Cache-Control': 'public, max-age=86400',
+    'X-Image-Placeholder': '1'
+  });
   res.send(PLACEHOLDER_SVG);
 };
 
