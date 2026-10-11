@@ -111,12 +111,14 @@ const IMAGE_SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 };
 
-// X-Image-Placeholder lets the admin page tell "no image" apart from an uploaded one (for undo)
-const sendPlaceholder = (res) => {
+// X-Image-Placeholder lets the admin page tell "no image" apart from an uploaded one (for undo).
+// Only a genuine "no image" answer may be cached: a placeholder sent because of a missing product
+// or a failed lookup (e.g. DB not ready yet) must not stick in the browser once the image is back.
+const sendPlaceholder = (res, { cacheable = false } = {}) => {
   res.set({
     ...IMAGE_SECURITY_HEADERS,
     'Content-Type': 'image/svg+xml',
-    'Cache-Control': 'public, max-age=86400',
+    'Cache-Control': cacheable ? 'public, max-age=86400' : 'no-store',
     'X-Image-Placeholder': '1'
   });
   res.send(PLACEHOLDER_SVG);
@@ -137,7 +139,7 @@ const getProductImage = async (req, res) => {
       const header = image.slice(5, comma);
       const isBase64 = header.endsWith(';base64');
       const mime = header.replace(/;base64$/, '').split(';')[0].trim().toLowerCase();
-      if (comma < 0 || !mime.startsWith('image/')) return sendPlaceholder(res);
+      if (comma < 0 || !mime.startsWith('image/')) return sendPlaceholder(res, { cacheable: true });
 
       const payload = image.slice(comma + 1);
       const buffer = isBase64 ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload));
@@ -158,7 +160,7 @@ const getProductImage = async (req, res) => {
       return res.redirect(302, image);
     }
 
-    return sendPlaceholder(res);
+    return sendPlaceholder(res, { cacheable: true });
   } catch (error) {
     return sendPlaceholder(res.status(error.name === 'CastError' ? 404 : 500));
   }

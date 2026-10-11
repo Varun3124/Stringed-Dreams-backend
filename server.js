@@ -8,9 +8,6 @@ const { notFound, errorHandler } = require('./middleware/error');
 // Load environment variables
 dotenv.config();
 
-// Connect to database
-connectDB();
-
 const app = express();
 
 // Middleware
@@ -52,6 +49,10 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Only accept requests once the database is connected and startup migrations have run,
+// otherwise early requests fail and (for images) show the placeholder
+connectDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
 });
