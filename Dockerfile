@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---------- Stage 1: production dependencies only ----------
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 # Copy only the manifests first so this layer stays cached until dependencies change
 COPY package.json package-lock.json ./
@@ -9,7 +9,7 @@ RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 
 # ---------- Stage 2: run lint + tests inside the image (optional) ----------
 # docker build --target test .
-FROM node:22-alpine AS test
+FROM node:26-alpine AS test
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -17,7 +17,7 @@ COPY . .
 RUN npm run lint && npm run test:unit
 
 # ---------- Stage 3: small runtime image ----------
-FROM node:22-alpine AS runtime
+FROM node:26-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=5000
