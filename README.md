@@ -25,6 +25,7 @@ npm run dev            # nodemon; `npm start` for production
 | `JWT_SECRET` | yes | Secret used to sign auth tokens |
 | `PORT` | no | Defaults to `5000` |
 | `NODE_ENV` | no | `production` turns off per-request logging |
+| `MONGODB_URI_TEST` | tests only | Database for the integration tests; they are skipped when unset |
 | `FRONTEND_URL` | recommended | Allowed CORS origin (defaults to `http://localhost:3000`) |
 | `JSON_BODY_LIMIT` | no | Max JSON body size for base64 image uploads (default `12mb`) |
 | `MAX_IMAGE_BYTES` / `MAX_TOTAL_BYTES` | no | Bulk-import size limits per image / per batch |
@@ -32,6 +33,47 @@ npm run dev            # nodemon; `npm start` for production
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | no | Default to `smtp.gmail.com`, port `465`, secure (TLS) |
 | `EMAIL_FROM` | no | Sender, e.g. `Stringed Dreams <you@gmail.com>` (defaults to `SMTP_USER`) |
 | `ADMIN_EMAILS` | no | Extra comma-separated recipients; every admin account is always included |
+
+## Testing
+
+```bash
+npm run lint              # ESLint
+npm test                  # unit + API tests (no database needed); DB tests are skipped
+npm run test:coverage     # same, with a coverage report in coverage/
+
+# Integration tests against a real MongoDB
+docker compose up -d mongo
+MONGODB_URI_TEST=mongodb://localhost:27017/stringed-dreams-test npm run test:integration
+```
+
+`app.js` builds the Express app and `server.js` connects to MongoDB and starts listening, so tests can load the app without a server or database.
+
+## Docker
+
+```bash
+docker compose up --build                  # MongoDB + API on http://localhost:5000
+docker compose --profile full up --build   # + the React frontend on http://localhost:3000
+docker compose down                        # stop (add -v to also delete the database volume)
+```
+
+The `full` profile builds `../stringed-dreams-frontend`, so clone both repos side by side.
+
+The `Dockerfile` has three stages: `deps` (production dependencies only), `test` (`docker build --target test .` runs lint and unit tests) and `runtime` (Node 22 Alpine, non-root user, health check on `/api/health`).
+
+## Health check
+
+`GET /api/health` returns `200` with `{ status: "ok", db: "connected", uptime, timestamp, version }` when MongoDB is connected and `503` otherwise. `version` is the deployed commit. On `SIGTERM`/`SIGINT` the server stops accepting connections, finishes in-flight requests and closes MongoDB before exiting.
+
+## CI/CD
+
+`.github/workflows/ci-cd.yml` runs on every push and pull request to `main`:
+
+1. **Lint**: ESLint
+2. **Test**: Jest + Supertest against a MongoDB service container, with a coverage report
+3. **Docker**: builds the image, starts it next to MongoDB and checks `/api/health`; on `main` pushes it to `ghcr.io/varun3124/stringed-dreams-backend`
+4. **Deploy** (`main` pushes only): triggers the Render deploy hook (`RENDER_DEPLOY_HOOK` secret), then waits until `BACKEND_URL/api/health` reports the new commit
+
+Pull requests run steps 1–3 and never deploy. Dependabot opens weekly update PRs for npm packages, Actions and the Docker base image.
 
 ## Inquiry emails
 When a customer starts a conversation or sends a message, every admin account (plus `ADMIN_EMAILS`) gets an email. It contains the message, the customer's email and phone, any referenced product or collection with a link, and a link to the dashboard. Replying to the email writes to the customer directly.

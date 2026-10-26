@@ -1,58 +1,32 @@
-const express = require('express');
-const dotenv = require('dotenv');
-const cors = require('cors');
-const compression = require('compression');
+// Load environment variables before anything reads them
+require('dotenv').config();
+
+const mongoose = require('mongoose');
 const connectDB = require('./config/db');
-const { notFound, errorHandler } = require('./middleware/error');
-
-// Load environment variables
-dotenv.config();
-
-const app = express();
-
-// Middleware
-app.use(compression());
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true,
-  exposedHeaders: ['X-Image-Placeholder']
-}));
-// Increase payload limits to allow base64 image uploads from the admin UI
-const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '12mb';
-app.use(express.json({ limit: JSON_BODY_LIMIT }));
-app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
-
-// Request logger (development only)
-if (process.env.NODE_ENV !== 'production') {
-  app.use((req, res, next) => {
-    console.log(`${req.method} ${req.originalUrl}`);
-    next();
-  });
-}
-
-// Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/products', require('./routes/products'));
-app.use('/api/favorites', require('./routes/favorites'));
-app.use('/api/admin', require('./routes/admin'));
-app.use('/api/playlists', require('./routes/playlists'));
-app.use('/api/contact', require('./routes/contact'));
-
-// Root route
-app.get('/', (req, res) => {
-  res.json({ message: 'E-commerce API is running' });
-});
-
-// Error handling middleware
-app.use(notFound);
-app.use(errorHandler);
+const app = require('./app');
 
 const PORT = process.env.PORT || 5000;
 
 // Only accept requests once the database is connected and startup migrations have run,
 // otherwise early requests fail and (for images) show the placeholder
 connectDB().then(() => {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
+
+  // Graceful shutdown: Docker, Render and Ctrl+C send SIGTERM/SIGINT. Stop taking new
+  // connections, let in-flight requests finish, close MongoDB, then exit.
+  const shutdown = (signal) => {
+    console.log(`${signal} received, shutting down`);
+    server.close(async () => {
+      await mongoose.connection.close(false);
+      console.log('Closed HTTP server and MongoDB connection');
+      process.exit(0);
+    });
+    // Force exit if something hangs
+    setTimeout(() => process.exit(1), 10000).unref();
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 });
