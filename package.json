@@ -5,7 +5,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "lint": "eslint .",
+    "test": "jest",
+    "test:unit": "jest tests/unit tests/api",
+    "test:integration": "jest tests/integration",
+    "test:coverage": "jest --coverage"
   },
   "keywords": [
     "ecommerce",
@@ -30,6 +35,25 @@
     "nodemailer": "^10.0.11"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "jest": "^30.5.2",
+    "nodemon": "^3.0.1",
+    "supertest": "^7.3.1"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/tests/setup-env.js"
+    ],
+    "collectCoverageFrom": [
+      "**/*.js",
+      "!node_modules/**",
+      "!coverage/**",
+      "!tests/**",
+      "!eslint.config.js",
+      "!server.js"
+    ]
   }
 }

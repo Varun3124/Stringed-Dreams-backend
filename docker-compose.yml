@@ -1,0 +1,60 @@
+# Local environment: MongoDB + API (+ the React frontend with --profile full)
+#
+#   docker compose up --build                  # mongo + api  -> http://localhost:5000
+#   docker compose --profile full up --build   # + frontend   -> http://localhost:3000
+#
+# The "full" profile expects the frontend repo cloned next to this one:
+#   parent/
+#     stringed-dreams-backend/   (this repo)
+#     stringed-dreams-frontend/
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      target: runtime
+    image: stringed-dreams-backend:local
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    # Optional .env for SMTP settings etc.; the values below override it
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/stringed-dreams
+      JWT_SECRET: ${JWT_SECRET:-local-dev-secret-change-me}
+      FRONTEND_URL: http://localhost:3000
+      NODE_ENV: production
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  frontend:
+    profiles: ["full"]
+    build:
+      context: ../stringed-dreams-frontend
+    image: stringed-dreams-frontend:local
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  mongo-data:
